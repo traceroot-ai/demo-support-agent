@@ -91,3 +91,58 @@ export TRACEROOT_ACCESS_TOKEN=...        # session token or CLI access token
 export TRACEROOT_HOST_URL=https://app.traceroot.ai
 python setup_project.py
 ```
+
+## Scheduled traffic and the state bot
+
+`.github/workflows/state-bot.yml` runs `state_bot.py` every 12 hours, once
+for each TraceRoot environment in the repository variable
+`STATE_BOT_ENVIRONMENTS` (for example `["staging"]`). Each run does two
+things:
+
+1. **Finds the faults that are on today.** Each fault follows a 7-day cycle:
+   on for two days, off for three, on for one more day, then off. The faults
+   start the cycle on different days, so on any day some faults are on and
+   some are off.
+2. **Sends traffic.** `SESSIONS_PER_RUN` sessions. Each session runs on a
+   fault version with that fault's share, or on the stable version. Every
+   session on a fault version runs the scenario that reaches its bug.
+
+The detectors, signals and alerts follow the traffic by themselves. The bot
+does not change the status of signals.
+
+Print the plan for the next 7 days, without sending anything:
+
+```bash
+TRACEROOT_HOST_URL=https://staging.traceroot.ai python state_bot.py --dry-run
+```
+
+| Name | Kind | Level | Use |
+|---|---|---|---|
+| `OPENAI_API_KEY` | secret | repository | Model calls of the demo agent |
+| `TRACEROOT_API_KEY` | secret | environment | Key of the demo project; sends the traces |
+| `TRACEROOT_HOST_URL` | variable | environment | The TraceRoot host, for example `https://staging.traceroot.ai` |
+| `FIXED_FAULTS` | variable | environment (optional) | Faults that the team fixed in this environment, for example `f3`. The bot does not turn them on again. |
+| `STATE_BOT_ENVIRONMENTS` | variable | repository | JSON list of the GitHub environments to run, for example `["staging", "production"]` |
+| `SESSIONS_PER_RUN` | variable | repository (optional) | Sessions in each run; the default is 20 |
+
+GitHub stops the scheduled workflows of a public repository after 60 days
+without activity. Each scheduled run enables the workflow again through the
+GitHub API to prevent this.
+
+### Set the status of two signals, once
+
+The demo shows one signal that the team fixed and one signal that opened
+again. A member of the demo workspace sets them up once in each
+environment, after the bot has run long enough for both signals to exist.
+`--dry-run` shows the days on which each fault is off.
+
+1. **F3, fixed.** On a day when F3 is off, add `f3` to `FIXED_FAULTS` for
+   this environment. Then resolve the signal of the "Large refund without
+   supervisor review" detector, with the reason "Fixed outside TraceRoot".
+   F3 does not come back, so the signal stays resolved.
+2. **F6, opened again.** On a day when F6 is off, resolve the signal of the
+   "Agent handoff loop" detector. On the next day that F6 is on, the
+   detector finds the problem again: the signal opens again by itself, and
+   RCA runs again.
+
+All other signals stay open.

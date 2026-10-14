@@ -1,0 +1,67 @@
+# Runs the demo state bot for each TraceRoot environment in the repository
+# variable STATE_BOT_ENVIRONMENTS, for example ["staging", "production"].
+# state_bot.py turns faults on and off and sends demo traffic. Each GitHub
+# environment holds the project key, host and fixed faults of one TraceRoot
+# environment.
+name: state bot
+
+on:
+  schedule:
+    - cron: "17 5,17 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print what the run would do, and send nothing"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: state-bot
+  cancel-in-progress: false
+
+jobs:
+  run:
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: ${{ fromJSON(vars.STATE_BOT_ENVIRONMENTS || '["staging"]') }}
+    environment: ${{ matrix.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # run_demo.py checks out the fault branches into worktrees.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Run the state bot
+        env:
+          TRACEROOT_API_KEY: ${{ secrets.TRACEROOT_API_KEY }}
+          TRACEROOT_HOST_URL: ${{ vars.TRACEROOT_HOST_URL }}
+          TRACEROOT_ENVIRONMENT: production
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SESSIONS_PER_RUN: ${{ vars.SESSIONS_PER_RUN }}
+          FIXED_FAULTS: ${{ vars.FIXED_FAULTS }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: |
+          uv run --no-project --python 3.13 --with-requirements requirements.txt \
+            python state_bot.py $DRY_RUN
+
+  # GitHub stops the scheduled workflows of a public repository after 60 days
+  # without activity. Enabling this workflow again on each scheduled run keeps
+  # the schedule on.
+  keepalive:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Enable this workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: gh api -X PUT "repos/$REPO/actions/workflows/state-bot.yml/enable"
