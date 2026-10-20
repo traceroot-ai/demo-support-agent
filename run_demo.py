@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import subprocess
 import sys
@@ -48,6 +49,14 @@ def _git(*args: str, cwd: Path = ROOT) -> None:
     subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
 
 
+def _head(cwd: Path) -> str:
+    """Return the commit that `cwd` has checked out."""
+    out = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=cwd, check=True, capture_output=True, text=True
+    )
+    return out.stdout.strip()
+
+
 def checkout_fault(branch: str) -> Path:
     """Put the latest commit of a fault branch into its own worktree."""
     path = WORKTREES / branch.replace("/", "-")
@@ -80,7 +89,10 @@ def run_mix(sessions: int, shares: dict[str, float], concurrency: int = 4) -> in
         cmd += ["--concurrency", str(concurrency)]
         if focus:
             cmd += ["--focus", focus, "--focus-share", "1"]
-        procs.append(subprocess.Popen(cmd, cwd=cwd))
+        # In GitHub Actions the SDK reads GITHUB_SHA, the commit of the workflow
+        # run, before the checked-out commit. Name each version's commit.
+        env = {**os.environ, "TRACEROOT_GIT_REF": _head(cwd)}
+        procs.append(subprocess.Popen(cmd, cwd=cwd, env=env))
     return max((p.wait() for p in procs), default=0)
 
 
