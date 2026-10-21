@@ -12,7 +12,7 @@ import random
 import time
 from datetime import date, timedelta
 
-REFUND_LIMIT_USD = float(os.getenv("REFUND_LIMIT_USD", "2000"))
+REFUND_LIMIT_USD = float(os.getenv("REFUND_LIMIT_USD", "200"))
 RETURN_WINDOW_DAYS = 30
 
 CUSTOMERS = {
