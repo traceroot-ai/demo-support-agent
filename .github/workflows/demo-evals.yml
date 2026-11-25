@@ -2,7 +2,7 @@ name: Demo evaluations
 
 on:
   schedule:
-    - cron: "17 10 * * 1"
+    - cron: "17 10 * * 2"
       timezone: "America/Los_Angeles"
   workflow_dispatch:
     inputs:
@@ -19,7 +19,34 @@ permissions:
   contents: read
 
 jobs:
+  cadence:
+    runs-on: ubuntu-latest
+    outputs:
+      due: ${{ steps.check.outputs.due }}
+    steps:
+      - name: Check the biweekly cadence
+        id: check
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            echo "due=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          from datetime import date, datetime
+          from zoneinfo import ZoneInfo
+
+          # Count Pacific calendar weeks so DST and New Year do not reset the cadence.
+          first_tuesday = date(2026, 12, 8)
+          today = datetime.now(ZoneInfo("America/Los_Angeles")).date()
+          weeks = (today - first_tuesday).days // 7
+          due = weeks >= 0 and weeks % 2 == 0
+          print(f"due={str(due).lower()}")
+          PY
+
   run:
+    needs: cadence
+    if: needs.cadence.outputs.due == 'true'
     strategy:
       fail-fast: false
       matrix:
